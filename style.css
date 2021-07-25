@@ -1,0 +1,9 @@
+img[alt=iconL] {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+img[alt=iconS] {
+    width: 1rem;
+    height: 1rem;
+}
