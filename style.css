@@ -1,3 +1,9 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+* {
+    font-family: 'IBM Plex Sans', 'Noto Sans KR', sans-serif !important;
+}
+
 img[alt=iconL] {
     width: 1.25rem;
     height: 1.25rem;
@@ -6,4 +12,8 @@ img[alt=iconL] {
 img[alt=iconS] {
     width: 1rem;
     height: 1rem;
+}
+
+label {
+    display: none !important;
 }
