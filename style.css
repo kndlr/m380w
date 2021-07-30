@@ -14,10 +14,14 @@ img[alt=iconS] {
     height: 1rem;
 }
 
-label:not([data-baseweb=radio]) {
+label {
     display: none !important;
 }
 
 small {
     font-weight: 300;
+}
+
+video {
+    display: none;
 }

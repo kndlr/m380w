@@ -1,25 +1,27 @@
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_player import st_player
 import youtube_dl
-
-TITLE = "SHW-M380W 영상 변환기"
-SLATE_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/clapper-board_1f3ac.png"
-LINK_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/link_1f517.png"
-ERROR_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/warning_26a0-fe0f.png"
-GEAR_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/gear_2699-fe0f.png"
-SCREEN_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/desktop-computer_1f5a5-fe0f.png"
-TV_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/television_1f4fa.png"
-SPEAKER_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/speaker-low-volume_1f508.png"
-CAPTION_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/page-with-curl_1f4c3.png"
-MOVIE_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/movie-camera_1f3a5.png"
-FILM_ICON = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/apple/285/film-frames_1f39e-fe0f.png"
-RESOLUTION = {"144p" : 144, "240p" : 240, "360p" : 360, "480p" : 480, "720p HD" : 720, "1080p FHD" : 1080, "1440p QHD" : 1440, "2160p UHD" : 2160, "4320p QUHD" : 4320}
+import subprocess
+import re
+import os
+from data import *
 
 st.set_page_config(page_title=TITLE, page_icon=SLATE_ICON)
 st.image(SLATE_ICON, width=100)
 st.title(TITLE)
 
-with open("style.css") as f:
+
+class ExtensionPP(youtube_dl.postprocessor.common.PostProcessor):
+    def __init__(self):
+        super(ExtensionPP, self).__init__()
+
+    def run(self, info):
+        self.ext = os.path.splitext(info["filepath"])[1]
+        return [], info
+
+
+with open("style.css", "r") as f:
     st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
 st.markdown(f"### ![iconL]({LINK_ICON}) 다운로드할 YouTube 영상 링크")
@@ -38,61 +40,143 @@ if link:
 
         st.markdown(f"#### ![iconS]({SCREEN_ICON}) 해상도 선택")
         max_res_q = max([i.get("quality", 0) for i in video["formats"]])
-        available_res = dict(list(RESOLUTION.items())[:max_res_q+1])
+        available_res = dict(list(RESOLUTION.items())[: max_res_q + 1])
         rec_res = min(max(available_res.values()), 720)
-        res = st.selectbox("", available_res.keys(), index=list(available_res.values()).index(rec_res))
-        if RESOLUTION[res] >= 1080:
-            st.warning(f"![iconS]({ERROR_ICON}) **1080p 이상의 영상**은 SHW-M380W 기기에서 재생되지 않을 수 있습니다")
+        res = st.selectbox(
+            "", available_res.keys(), index=list(available_res.values()).index(rec_res)
+        )
+        if RESOLUTION[res] > 720:
+            st.warning(
+                f"![iconS]({ERROR_ICON}) **1080p 이상의 영상**은 SHW-M380W 기기에서 재생되지 않을 수 있습니다"
+            )
 
-        st.markdown(f"""#### ![iconS]({TV_ICON}) 비디오 품질 <small>(1=최고, 5=기본, 31=최저)</small>""", unsafe_allow_html=True)
+        st.markdown(
+            f"""#### ![iconS]({TV_ICON}) 비디오 품질 <small>(1=최고, 5=기본, 31=최저)</small>""",
+            unsafe_allow_html=True,
+        )
         qv = st.slider("", 1, 31, 5, key="qv")
 
-        st.markdown(f"""#### ![iconS]({SPEAKER_ICON}) 오디오 품질 <small>(1=최고, 5=기본, 31=최저)</small>""", unsafe_allow_html=True)
+        st.markdown(
+            f"""#### ![iconS]({SPEAKER_ICON}) 오디오 품질 <small>(1=최고, 5=기본, 31=최저)</small>""",
+            unsafe_allow_html=True,
+        )
         qa = st.slider("", 1, 31, 5, key="qa")
-
-        st.json(video)
 
         st.markdown(f"### ![iconL]({SLATE_ICON}) 작업 진행 및 결과")
 
         if st.button("다운로드 및 변환"):
-            
+
             st.markdown(f"#### ![iconS]({TV_ICON}) 비디오 다운로드")
             vbar = st.progress(0)
 
             st.markdown(f"#### ![iconS]({SPEAKER_ICON}) 오디오 다운로드")
             abar = st.progress(0)
 
-            st.markdown(f"#### ![iconS]({MOVIE_ICON}) 비디오 및 오디오 결합")
-            mbar = st.progress(0)
-
-            st.markdown(f"#### ![iconS]({FILM_ICON}) 코덱 변환")
+            st.markdown(
+                f"#### ![iconS]({FILM_ICON}) 코덱 변환 <small>(시간이 다소 소요될 수 있음)</small>",
+                unsafe_allow_html=True,
+            )
             fbar = st.progress(0)
 
             bar = vbar
 
             def progress(data):
-                global bar, total_duration
+                global bar, fm
 
                 if data["status"] == "downloading":
                     percent = int(data["downloaded_bytes"] / data["total_bytes"] * 100)
                     bar.progress(percent)
-                    
-                    if percent == 100:
-                        bar = abar
-            
+
+                elif data["status"] == "finished":
+                    bar = abar
+
             ydl_opts = {
-                "format" : f"bestvideo[height<={RESOLUTION[res]}]+bestaudio/best[height<={RESOLUTION[res]}]",
-                "quiet" : True,
-                "no_warnings" : True,
-                "progress_hooks" : [progress],
-                "outtmpl" : "./cache/%(id)s.%(ext)s",
-                "cache-dir" : "./cache",
-                "merge_output_format" : "mp4",
+                "format": f"bestvideo[ext=mp4][height<={RESOLUTION[res]}]+bestaudio/best[ext=mp4][height<={RESOLUTION[res]}]",
+                "quiet": True,
+                "no_warnings": True,
+                "progress_hooks": [progress],
+                "outtmpl": "./cache/%(id)s.%(ext)s",
+                "cache-dir": "./cache",
             }
 
-            with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            processor = ExtensionPP()
+
+            ydl = youtube_dl.YoutubeDL(ydl_opts)
+            ydl.add_post_processor(processor)
+
+            if not os.path.exists("./cache"):
+                os.mkdir("./cache")
+
+            with ydl:
                 ydl.download([link])
+
+            ext = processor.ext
 
             vbar.progress(100)
             abar.progress(100)
-            mbar.progress(100)
+
+            command = [
+                "ffprobe",
+                "-select_streams",
+                "v:0",
+                "-count_packets",
+                "-show_entries",
+                "stream=nb_read_packets",
+                "-of",
+                "csv=p=0",
+                "-i",
+                f"./cache/{video.get('id', None)}{ext}",
+            ]
+            ffprobe = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+            total = int(ffprobe.stdout)
+
+            command = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                f"./cache/{video.get('id', None)}{ext}",
+                "-c:v",
+                "mpeg4",
+                "-vtag",
+                "xvid",
+                "-q:v",
+                str(qv),
+                "-q:a",
+                str(qa),
+                f"./cache/{video.get('id', None)}.avi",
+            ]
+            ffmpeg = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+
+            pattern = re.compile(r"(frame)\=\s*(\S+)")
+
+            while True:
+                out = ffmpeg.stderr.readline().replace("\n", "")
+                if not out:
+                    break
+                else:
+                    frame = pattern.findall(out)
+                    if frame:
+                        fbar.progress(int(int(frame[0][1]) / total * 100))
+
+            os.remove(f"./cache/{video.get('id', None)}{ext}")
+
+            st.video(f"./cache/{video.get('id', None)}.avi", "video/avi")
+
+            components.html(
+                "<script>parent.window.open(parent.document.querySelector('.stVideo').src)</script>",
+                height=0,
+            )
+
+            st.success(f"![iconS]({CHECK_ICON}) 성공적으로 다운로드했습니다")
+
+            st.balloons()
